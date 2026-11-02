@@ -10,8 +10,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="寸度">
   <meta name="theme-color" content="#ffffff" id="theme-color-meta">
-  <link rel="manifest" href="data:application/manifest+json;utf-8,%7B%22name%22%3A%22寸度%22%2C%22short_name%22%3A%22寸度%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background-color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23000000%22%7D">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23171717' rx='20'/><text x='50' y='64' font-size='48' font-family='sans-serif' text-anchor='middle' fill='%23ffffff' font-weight='600'>寸</text></svg>">
   
+  <!-- 動態生成並注入符合 Android 安裝標準的 Web Manifest -->
+  <link rel="manifest" id="pwa-manifest">
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -1726,10 +1729,110 @@
        啟動
        ========================================================================== */
     window.addEventListener('DOMContentLoaded', () => {
+      initPWA();
       initTheme();
       initCalendarSelects();
       loadData();
     });
+
+    /* ==========================================================================
+       Android PWA 安裝標準設定 (Service Worker + Manifest + Icons)
+       ========================================================================== */
+    function initPWA() {
+      // 1. 動態繪製 192x192 與 512x512 圖示供 Android 安裝規範使用
+      function createIconDataUrl(size) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        
+        // 背景黑底
+        ctx.fillStyle = '#171717';
+        ctx.fillRect(0, 0, size, size);
+        
+        // 置中白色「寸」字
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `600 ${Math.floor(size * 0.52)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('寸', size / 2, size / 2 + size * 0.03);
+        
+        return canvas.toDataURL('image/png');
+      }
+
+      try {
+        const icon192 = createIconDataUrl(192);
+        const icon512 = createIconDataUrl(512);
+
+        // 2. 構建符合 W3C 與 Chrome 要求的完整 Manifest
+        const currentPath = window.location.pathname;
+        const manifestObj = {
+          name: "寸度 - 觀察與改變軌跡",
+          short_name: "寸度",
+          description: "極簡俐落的個人日常觀察與行動軌跡記錄應用",
+          start_url: currentPath,
+          scope: currentPath.substring(0, currentPath.lastIndexOf('/') + 1),
+          id: currentPath,
+          display: "standalone",
+          orientation: "portrait",
+          background_color: "#ffffff",
+          theme_color: "#171717",
+          icons: [
+            {
+              src: icon192,
+              sizes: "192x192",
+              type: "image/png",
+              purpose: "any maskable"
+            },
+            {
+              src: icon512,
+              sizes: "512x512",
+              type: "image/png",
+              purpose: "any maskable"
+            }
+          ]
+        };
+
+        const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
+        const manifestUrl = URL.createObjectURL(manifestBlob);
+        const manifestLink = document.getElementById('pwa-manifest');
+        if (manifestLink) {
+          manifestLink.setAttribute('href', manifestUrl);
+        }
+
+        // 3. 註冊內嵌式 Service Worker (Android 安裝必備條件)
+        if ('serviceWorker' in navigator) {
+          const swCode = `
+            const CACHE_NAME = 'cundu-cache-v1';
+            self.addEventListener('install', (e) => {
+              self.skipWaiting();
+            });
+            self.addEventListener('activate', (e) => {
+              e.waitUntil(self.clients.claim());
+            });
+            self.addEventListener('fetch', (e) => {
+              // 網路優先，離線時使用快取
+              if (e.request.method !== 'GET') return;
+              e.respondWith(
+                fetch(e.request).catch(() => caches.match(e.request))
+              );
+            });
+          `;
+          const swBlob = new Blob([swCode], { type: 'application/javascript' });
+          const swUrl = URL.createObjectURL(swBlob);
+
+          navigator.serviceWorker.register(swUrl)
+            .then(reg => {
+              console.log('PWA Service Worker 註冊成功', reg.scope);
+            })
+            .catch(err => {
+              console.warn('Service Worker 註冊受限（需在 HTTPS/GitHub Pages 環境運行）:', err);
+            });
+        }
+      } catch (e) {
+        console.error('初始化 PWA 失敗:', e);
+      }
+    }
   </script>
 </body>
 </html>
